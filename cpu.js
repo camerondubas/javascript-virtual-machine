@@ -16,6 +16,8 @@ class CPU {
       "r6",
       "r7",
       "r8",
+      "stackPointer",
+      "framePointer",
     ];
 
     // Since this is a 16bit VM, we need 2 Bytes per register.
@@ -26,6 +28,13 @@ class CPU {
       map[name] = i * 2;
       return map;
     }, {});
+
+    // First "-1" because we need 2 bytes (first byte is "included")
+    // Second "-1" because we are working with a 0 indexed array
+    this.setRegister("stackPointer", memory.byteLength - 1 - 1);
+    this.setRegister("framePointer", memory.byteLength - 1 - 1);
+
+    this.stackFrameSize = 0;
   }
 
   debug() {
@@ -37,13 +46,13 @@ class CPU {
     console.log();
   }
 
-  viewMemoryAt(address) {
-    const nextEightBytes = Array.from({ length: 8 }, (_, i) =>
+  viewMemoryAt(address, numberOfBytes = 8) {
+    const nextNBytes = Array.from({ length: numberOfBytes }, (_, i) =>
       this.memory.getUint8(address + i)
     ).map((v) => `0x${v.toString(16).padStart(2, "0")}`);
 
     console.log(
-      `0x${address.toString(16).padStart(4, "0")}: ${nextEightBytes.join(" ")}`
+      `0x${address.toString(16).padStart(4, "0")}: ${nextNBytes.join(" ")}`
     );
   }
 
@@ -77,29 +86,105 @@ class CPU {
     return instruction;
   }
 
+  fetchRegisterIndex() {
+    // Modulo length of registers to have sensible fallback for invalid indexes
+    // "*2" because...(?)
+    return (this.fetch() % this.registerNames.length) * 2;
+  }
+
+  push(value) {
+    const stackPointerAddress = this.getRegister("stackPointer");
+    this.memory.setUint16(stackPointerAddress, value);
+    // "-2" because the stack goes backwards 2 bytes/16bits
+    this.setRegister("stackPointer", stackPointerAddress - 2);
+    this.stackFrameSize += 2;
+  }
+
+  pushState() {
+    // Push current CPU state to the stack
+    this.push(this.getRegister("r1"));
+    this.push(this.getRegister("r2"));
+    this.push(this.getRegister("r3"));
+    this.push(this.getRegister("r4"));
+    this.push(this.getRegister("r5"));
+    this.push(this.getRegister("r6"));
+    this.push(this.getRegister("r7"));
+    this.push(this.getRegister("r8"));
+    this.push(this.getRegister("instructionPointer")); // Think of this as the "return address" of this subroutine
+    this.push(this.stackFrameSize + 2); // Takes 2 bytes
+
+    // Move Frame pointer to where the stack currently points,
+    // so that we can safely move the stackPointer without losing reference to where it was
+    this.setRegister("framePointer", this.getRegister("stackPointer"));
+    // Set to 0 so that new stack frame can be accurately tracked.
+    this.stackFrameSize = 0;
+  }
+  pop() {
+    // "+2" because that's the last item that was pushed to the stack.
+    const nextStackPointerAddress = this.getRegister("stackPointer") + 2;
+    this.setRegister("stackPointer", nextStackPointerAddress);
+    this.stackFrameSize -= 2;
+    return this.memory.getUint16(nextStackPointerAddress);
+  }
+
+  popState() {
+    const framePointerAddress = this.getRegister("framePointer");
+
+    // Any values in subroutine can be ignored now
+    // "Variables have gone out of scope"
+    this.setRegister("stackPointer", framePointerAddress);
+
+    // This gives the size of the old stack frame,
+    //because it was the last thing pushed to the frame via "pushState"
+    this.stackFrameSize = this.pop();
+
+    // Copy value for later
+    const stackFrameSize = this.stackFrameSize;
+
+    // Reverse order from "pushState"
+    this.setRegister("instructionPointer", this.pop());
+    this.setRegister("r8", this.pop());
+    this.setRegister("r7", this.pop());
+    this.setRegister("r6", this.pop());
+    this.setRegister("r5", this.pop());
+    this.setRegister("r4", this.pop());
+    this.setRegister("r3", this.pop());
+    this.setRegister("r2", this.pop());
+    this.setRegister("r1", this.pop());
+
+    // Number of arguments pushed to the subroutine
+    const nArgs = this.pop();
+    for (let index = 0; index < nArgs; index++) {
+      this.pop();
+    }
+
+    // Set to beginning of this frame
+    this.setRegister("framePointer", framePointerAddress + stackFrameSize);
+  }
+
   execute(instruction) {
     switch (instruction) {
       // Move literal into register
       case instructions.MOV_LIT_REG: {
         const literal = this.fetch16();
-        const register = (this.fetch() % this.registerNames.length) * 2;
-        this.registers.setUint16(register, literal);
+        const registerIndex = this.fetchRegisterIndex();
+        this.registers.setUint16(registerIndex, literal);
         return;
       }
       // Move register into register
       case instructions.MOV_REG_REG: {
-        const registerFrom = (this.fetch() % this.registerNames.length) * 2;
-        const registerTo = (this.fetch() % this.registerNames.length) * 2;
-        const value = this.registers.getUint16(registerFrom);
-        this.registers.setUint16(register, value);
+        const registerIndexFrom = this.fetchRegisterIndex();
+        const registerIndexTo = this.fetchRegisterIndex();
+        const value = this.registers.getUint16(registerIndexFrom);
+        this.registers.setUint16(registerIndexTo, value);
         return;
       }
 
       // Move register into memory
       case instructions.MOV_REG_MEM: {
-        const registerFrom = (this.fetch() % this.registerNames.length) * 2;
+        const registerIndexFrom = this.fetchRegisterIndex();
         const address = this.fetch16();
-        const value = this.registers.getUint16(registerFrom);
+        const value = this.registers.getUint16(registerIndexFrom);
         this.memory.setUint16(address, value);
         return;
       }
@@ -107,18 +192,19 @@ class CPU {
       // Move memory into register
       case instructions.MOV_MEM_REG: {
         const address = this.fetch16();
-        const registerTo = (this.fetch() % this.registerNames.length) * 2;
+        const registerIndexTo = this.fetchRegisterIndex();
         const value = this.memory.getUint16(address);
-        this.registers.setUint16(registerTo, value);
+        this.registers.setUint16(registerIndexTo, value);
         return;
       }
 
       // Add register to register
       case instructions.ADD_REG_REG: {
-        const r1 = this.fetch();
-        const r2 = this.fetch();
-        const registerValue1 = this.registers.getUint16(r1 * 2);
-        const registerValue2 = this.registers.getUint16(r2 * 2);
+        // This was "this.fetch()"
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue1 = this.registers.getUint16(r1);
+        const registerValue2 = this.registers.getUint16(r2);
         this.setRegister("accumulator", registerValue1 + registerValue2);
         return;
       }
@@ -132,6 +218,57 @@ class CPU {
           this.setRegister("instructionPointer", address);
         }
 
+        return;
+      }
+
+      // Push literal value to stack
+      case instructions.PSH_LIT: {
+        const value = this.fetch16();
+        this.push(value);
+        return;
+      }
+
+      // Push the value of a register to stack
+      case instructions.PSH_REG: {
+        const registerIndex = this.fetchRegisterIndex();
+        this.push(this.registers.getUint16(registerIndex));
+        return;
+      }
+
+      // Pop from stack
+      case instructions.POP: {
+        const registerIndex = this.fetchRegisterIndex();
+        const value = this.pop();
+        this.registers.setUint16(registerIndex, value);
+
+        return;
+      }
+
+      // Call literal subroutine
+      case instructions.CAL_LIT: {
+        // Subroutine address
+        const address = this.fetch16();
+
+        this.pushState();
+        this.setRegister("instructionPointer", address);
+        return;
+      }
+
+      // Call subroutine from register
+      case instructions.CAL_REG: {
+        const registerIndex = this.fetchRegisterIndex();
+        // Subroutine address
+        const address = this.registers.getUint16(registerIndex);
+
+        this.pushState();
+
+        this.setRegister("instructionPointer", address);
+        return;
+      }
+
+      // Return from subroutine
+      case instructions.RET: {
+        this.popState();
         return;
       }
     }
