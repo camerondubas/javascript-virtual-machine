@@ -1,6 +1,8 @@
 const createMemory = require("./create-memory");
 const instructions = require("./instructions");
 
+// Note: because this is a 16bit machine
+// There are 0xFFFF uniquely addressable bytes
 class CPU {
   constructor(memory) {
     this.memory = memory;
@@ -29,10 +31,9 @@ class CPU {
       return map;
     }, {});
 
-    // First "-1" because we need 2 bytes (first byte is "included")
-    // Second "-1" because we are working with a 0 indexed array
-    this.setRegister("stackPointer", memory.byteLength - 1 - 1);
-    this.setRegister("framePointer", memory.byteLength - 1 - 1);
+    // "-1" because we need 2 bytes
+    this.setRegister("stackPointer", 0xffff - 1);
+    this.setRegister("framePointer", 0xffff - 1);
 
     this.stackFrameSize = 0;
   }
@@ -271,12 +272,23 @@ class CPU {
         this.popState();
         return;
       }
+
+      case instructions.HLT: {
+        return true;
+      }
     }
   }
 
   step() {
     const instruction = this.fetch();
     return this.execute(instruction);
+  }
+
+  run() {
+    const halt = this.step();
+    if (!halt) {
+      setImmediate(() => this.run());
+    }
   }
 }
 
