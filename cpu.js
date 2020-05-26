@@ -199,9 +199,38 @@ class CPU {
         return;
       }
 
+      // Move litteral to memory
+      case instructions.MOV_LIT_MEM: {
+        const value = this.fetch16();
+        const address = this.fetch16();
+        this.memory.setUint16(address, value);
+        return;
+      }
+
+      // Move register* to register
+      case instructions.MOV_REG_PTR_REG: {
+        const r1 = this.fetchRegisterIndex(); // holds an address
+        const r2 = this.fetchRegisterIndex(); // Where to put the value. The destination
+        const pointer = this.registers.getUint16(r1); // The address in memory, from r1
+        const value = this.memory.getUint16(ptr);
+        this.registers.setUint16(r2, value);
+        return;
+      }
+
+      // Move value a [literal + register] to register. OFF = offset
+      case instructions.MOV_LIT_OFF_REG: {
+        const baseAdress = this.fetch16();
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const offset = this.registers.getUint16(r1);
+
+        const value = this.memory.getUint16(baseAdress + offset);
+        this.registers.setUint16(r2, value);
+        return;
+      }
+
       // Add register to register
       case instructions.ADD_REG_REG: {
-        // This was "this.fetch()"
         const r1 = this.fetchRegisterIndex();
         const r2 = this.fetchRegisterIndex();
         const registerValue1 = this.registers.getUint16(r1);
@@ -210,12 +239,343 @@ class CPU {
         return;
       }
 
-      // Jump if not equal
+      // Add literal to register
+      case instructions.ADD_LIT_REG: {
+        const literal = this.fetch16();
+        const r1 = this.fetchRegisterIndex();
+        const registerValue = this.registers.getUint16(r1);
+        this.setRegister("accumulator", literal + registerValue);
+        return;
+      }
+
+      // Subtract literal from register value
+      case instructions.SUB_LIT_REG: {
+        const literal = this.fetch16();
+        const r1 = this.fetchRegisterIndex();
+        const registerValue = this.registers.getUint16(r1);
+        this.setRegister("accumulator", registerValue - literal);
+        return;
+      }
+
+      // Subtract register from literal
+      case instructions.SUB_REG_LIT: {
+        const r1 = this.fetchRegisterIndex();
+        const literal = this.fetch16();
+        const registerValue = this.registers.getUint16(r1);
+        this.setRegister("accumulator", literal - registerValue);
+        return;
+      }
+
+      // Subtract register from register
+      case instructions.SUB_REG_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue1 = this.registers.getUint16(r1);
+        const registerValue2 = this.registers.getUint16(r2);
+        this.setRegister("accumulator", registerValue1 - registerValue2);
+        return;
+      }
+
+      // Multiply literal by register
+      case instructions.MUL_LIT_REG: {
+        const literal = this.fetch16();
+        const r1 = this.fetchRegisterIndex();
+        const registerValue = this.registers.getUint16(r1);
+        this.setRegister("accumulator", literal * registerValue);
+        return;
+      }
+
+      // Multiply literal by register
+      // This is specifically for unsigned multiplication,
+      // as signed multiplication requires specific logic
+      case instructions.MUL_REG_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue1 = this.registers.getUint16(r1);
+        const registerValue2 = this.registers.getUint16(r2);
+        this.setRegister("accumulator", registerValue1 * registerValue2);
+        return;
+      }
+
+      // Increment value in register (in place, not accumulator)
+      case instructions.INC_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const oldValue = this.registers.getUint16(r1);
+        const newValue = oldValue + 1;
+        this.registers.setUint16(r1, newValue);
+        return;
+      }
+
+      // Decrement value in register (in place, not accumulator)
+      case instructions.DEC_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const oldValue = this.registers.getUint16(r1);
+        const newValue = oldValue - 1;
+        this.registers.setUint16(r1, newValue);
+        return;
+      }
+
+      // Left shift register by literal (in place)
+      // "<<" JS Binary Left shift operator
+      case instructions.LSF_REG_LIT: {
+        const r1 = this.fetchRegisterIndex();
+        const literal = this.fetch();
+        const registerValue = this.registers.getUint16(r1);
+        this.registers.setUint16(r1, registerValue << literal);
+        return;
+      }
+
+      // Left shift register by register (in place)
+      case instructions.LSF_REG_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue = this.registers.getUint16(r1);
+        const shiftBy = this.registers.getUint16(r2);
+        this.registers.setUint16(r1, registerValue << shiftBy);
+        return;
+      }
+
+      // Right shift register by literal (in place)
+      // ">>" JS Bindary Right shift operator
+      case instructions.RSF_REG_LIT: {
+        const r1 = this.fetchRegisterIndex();
+        const literal = this.fetch();
+        const registerValue = this.registers.getUint16(r1);
+        this.registers.setUint16(r1, registerValue >> literal);
+        return;
+      }
+
+      // Right shift register by register (in place)
+      case instructions.RSF_REG_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue = this.registers.getUint16(r1);
+        const shiftBy = this.registers.getUint16(r2);
+        this.registers.setUint16(r1, registerValue >> shiftBy);
+        return;
+      }
+
+      // And register with literal
+      // "&" JS Binray AND operator
+      // Ex, 1110, 1011 = 1010
+      case instructions.AND_REG_LIT: {
+        const r1 = this.fetchRegisterIndex();
+        const literal = this.fetch16();
+        const registerValue = this.registers.getUint16(r1);
+        this.setRegister("accumulator", registerValue & literal);
+        return;
+      }
+
+      // And register with register
+      case instructions.AND_REG_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue1 = this.registers.getUint16(r1);
+        const registerValue2 = this.registers.getUint16(r2);
+        this.setRegister("accumulator", registerValue1 & registerValue2);
+        return;
+      }
+
+      // Or register with literal
+      // "|" JS Binray OR operator
+      // Ex, 1010, 0110 = 1110
+      case instructions.OR_REG_LIT: {
+        const r1 = this.fetchRegisterIndex();
+        const literal = this.fetch16();
+        const registerValue = this.registers.getUint16(r1);
+        this.setRegister("accumulator", registerValue | literal);
+        return;
+      }
+
+      // Or register with register
+      case instructions.OR_REG_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue1 = this.registers.getUint16(r1);
+        const registerValue2 = this.registers.getUint16(r2);
+        this.setRegister("accumulator", registerValue1 | registerValue2);
+        return;
+      }
+
+      // XOR register with literal
+      // "^" JS Binray XOR operator
+      // Ex, 0110, 1010 = 1100
+      case instructions.XOR_REG_LIT: {
+        const r1 = this.fetchRegisterIndex();
+        const literal = this.fetch16();
+        const registerValue = this.registers.getUint16(r1);
+        this.setRegister("accumulator", registerValue ^ literal);
+        return;
+      }
+
+      // XOR register with register
+      case instructions.XOR_REG_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const r2 = this.fetchRegisterIndex();
+        const registerValue1 = this.registers.getUint16(r1);
+        const registerValue2 = this.registers.getUint16(r2);
+        this.setRegister("accumulator", registerValue1 ^ registerValue2);
+        return;
+      }
+
+      // NOT (invert) register
+      // "~" JS Binray XOR operator
+      case instructions.NOT: {
+        const r1 = this.fetchRegisterIndex();
+        const registerValue = this.registers.getUint16(r1);
+
+        // NOTE: Because under the hood, JS will always operate with 32bit numbers,
+        // a NOT would result in the "top" 16bits being flipped from 0s to 1s.
+        // To handle this, we do a logical AND ("&") to explicitly grab just the "bottom" 16 bits.
+        const res = ~registerValue & 0xffff;
+        this.setRegister("accumulator", res);
+        return;
+      }
+
+      // Jump if not equal to
       case instructions.JMP_NOT_EQ: {
         const value = this.fetch16();
         const address = this.fetch16();
 
         if (value !== this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if register not equal to
+      case instructions.JNE_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const value = this.registers.getUint16(r1);
+        const address = this.fetch16();
+
+        if (value !== this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if literal equal to
+      case instructions.JEQ_LIT: {
+        const value = this.fetch16();
+        const address = this.fetch16();
+
+        if (value === this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if register equal to
+      case instructions.JEQ_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const value = this.registers.getUint16(r1);
+        const address = this.fetch16();
+
+        if (value === this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if literal lesser than
+      case instructions.JLT_LIT: {
+        const value = this.fetch16();
+        const address = this.fetch16();
+
+        if (value < this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if register lesser than
+      case instructions.JLT_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const value = this.registers.getUint16(r1);
+        const address = this.fetch16();
+
+        if (value < this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if literal greater than
+      case instructions.JGT_LIT: {
+        const value = this.fetch16();
+        const address = this.fetch16();
+
+        if (value > this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if register greater than
+      case instructions.JGT_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const value = this.registers.getUint16(r1);
+        const address = this.fetch16();
+
+        if (value > this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if literal lesser than or equal to
+      case instructions.JLE_LIT: {
+        const value = this.fetch16();
+        const address = this.fetch16();
+
+        if (value <= this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if register lesser than or equal to
+      case instructions.JLE_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const value = this.registers.getUint16(r1);
+        const address = this.fetch16();
+
+        if (value <= this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if literal greater than or equal to
+      case instructions.JGE_LIT: {
+        const value = this.fetch16();
+        const address = this.fetch16();
+
+        if (value >= this.getRegister("accumulator")) {
+          this.setRegister("instructionPointer", address);
+        }
+
+        return;
+      }
+
+      // Jump if register greater than or equal to
+      case instructions.JGE_REG: {
+        const r1 = this.fetchRegisterIndex();
+        const value = this.registers.getUint16(r1);
+        const address = this.fetch16();
+
+        if (value >= this.getRegister("accumulator")) {
           this.setRegister("instructionPointer", address);
         }
 
