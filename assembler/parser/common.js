@@ -43,6 +43,10 @@ const validIdentifier = mapJoin(
   ])
 );
 
+const label = A.sequenceOf([validIdentifier, A.char(":"), A.optionalWhitespace])
+  .map(([labelName]) => labelName)
+  .map(TYPES.label);
+
 // Find "!" + a validIdentifier. Mapped to VARIABLE type
 // Ex. !someVar
 const variable = A.char("!")
@@ -67,4 +71,5 @@ module.exports = {
   variable,
   operator,
   peek,
+  label,
 };

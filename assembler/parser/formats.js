@@ -29,6 +29,27 @@ const litReg = (mnemonic, type) =>
     });
   });
 
+const regLit = (mnemonic, type) =>
+  A.coroutine(function* () {
+    yield upperOrLowerString(mnemonic);
+    yield A.whitespace;
+
+    const register1 = yield register;
+
+    yield A.optionalWhitespace;
+    yield A.char(",");
+    yield A.optionalWhitespace;
+
+    const literal1 = yield A.choice([hexLiteral, squareBracketExpression]);
+
+    yield A.optionalWhitespace;
+
+    return TYPES.instruction({
+      instruction: type,
+      args: [register1, literal1],
+    });
+  });
+
 const regReg = (mnemonic, type) =>
   A.coroutine(function* () {
     yield upperOrLowerString(mnemonic);
@@ -208,6 +229,7 @@ const singleLit = (mnemonic, type) =>
 
 module.exports = {
   litReg,
+  regLit,
   regReg,
   memReg,
   regMem,

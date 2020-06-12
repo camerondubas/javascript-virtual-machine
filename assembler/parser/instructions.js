@@ -1,6 +1,7 @@
 const A = require("arcsecond");
 const {
   litReg,
+  regLit,
   regReg,
   memReg,
   regMem,
@@ -30,6 +31,7 @@ const add = A.choice([
 const sub = A.choice([
   regReg("sub", "SUB_REG_REG"),
   litReg("sub", "SUB_LIT_REG"),
+  regLit("sub", "SUB_REG_LIT"),
 ]);
 
 const mul = A.choice([
@@ -39,12 +41,12 @@ const mul = A.choice([
 
 const lsf = A.choice([
   regReg("lsf", "LSF_REG_REG"),
-  litReg("lsf", "LSF_LIT_REG"),
+  regLit("lsf", "LSF_REG_LIT"),
 ]);
 
 const rsf = A.choice([
   regReg("rsf", "RSF_REG_REG"),
-  litReg("rsf", "RSF_LIT_REG"),
+  regLit("rsf", "RSF_REG_LIT"),
 ]);
 
 const and = A.choice([
@@ -64,7 +66,7 @@ const dec = singleReg("dec", "DEC_REG");
 const not = singleReg("not", "NOT");
 
 const jeq = A.choice([regMem("jeq", "JEQ_REG"), litMem("jeq", "JEQ_LIT")]);
-const jne = A.choice([regMem("jne", "JNE_REG"), litMem("jne", "JNE_LIT")]);
+const jne = A.choice([regMem("jne", "JNE_REG"), litMem("jne", "JMP_NOT_EQ")]);
 const jlt = A.choice([regMem("jlt", "JLT_REG"), litMem("jlt", "JLT_LIT")]);
 const jgt = A.choice([regMem("jgt", "JGT_REG"), litMem("jgt", "JGT_LIT")]);
 const jle = A.choice([regMem("jle", "JLE_REG"), litMem("jle", "JLE_LIT")]);
@@ -81,7 +83,7 @@ const cal = A.choice([
 ]);
 
 const ret = noArgs("ret", "RET");
-const hlt = noArgs("hlt", "HTL");
+const hlt = noArgs("hlt", "HLT");
 
 module.exports = A.choice([
   mov,
