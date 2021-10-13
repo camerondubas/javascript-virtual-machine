@@ -1,5 +1,6 @@
 const createMemory = require("./create-memory");
 const instructions = require("./instructions");
+const registers = require("./registers");
 
 // Note: because this is a 16bit machine
 // There are 0xFFFF uniquely addressable bytes
@@ -7,39 +8,24 @@ class CPU {
   constructor(memory) {
     this.memory = memory;
 
-    this.registerNames = [
-      "instructionPointer",
-      "accumulator",
-      "r1",
-      "r2",
-      "r3",
-      "r4",
-      "r5",
-      "r6",
-      "r7",
-      "r8",
-      "stackPointer",
-      "framePointer",
-    ];
-
     // Since this is a 16bit VM, we need 2 Bytes per register.
     // /herefore we double the number of registers to get the required memory
-    this.registers = createMemory(this.registerNames.length * 2);
+    this.registers = createMemory(registers.length * 2);
 
-    this.registerMap = this.registerNames.reduce((map, name, i) => {
+    this.registerMap = registers.reduce((map, name, i) => {
       map[name] = i * 2;
       return map;
     }, {});
 
     // "-1" because we need 2 bytes
-    this.setRegister("stackPointer", 0xffff - 1);
-    this.setRegister("framePointer", 0xffff - 1);
+    this.setRegister("stack_pointer", 0xffff - 1);
+    this.setRegister("frame_pointer", 0xffff - 1);
 
     this.stackFrameSize = 0;
   }
 
   debug() {
-    this.registerNames.forEach((name) => {
+    registers.forEach((name) => {
       console.log(
         `${name}: 0x${this.getRegister(name).toString(16).padStart(4, "0")}`
       );
@@ -74,30 +60,30 @@ class CPU {
   }
 
   fetch() {
-    const nextInstructionAddress = this.getRegister("instructionPointer");
+    const nextInstructionAddress = this.getRegister("instruction_pointer");
     const instruction = this.memory.getUint8(nextInstructionAddress);
-    this.setRegister("instructionPointer", nextInstructionAddress + 1);
+    this.setRegister("instruction_pointer", nextInstructionAddress + 1);
     return instruction;
   }
 
   fetch16() {
-    const nextInstructionAddress = this.getRegister("instructionPointer");
+    const nextInstructionAddress = this.getRegister("instruction_pointer");
     const instruction = this.memory.getUint16(nextInstructionAddress);
-    this.setRegister("instructionPointer", nextInstructionAddress + 2);
+    this.setRegister("instruction_pointer", nextInstructionAddress + 2);
     return instruction;
   }
 
   fetchRegisterIndex() {
     // Modulo length of registers to have sensible fallback for invalid indexes
     // "*2" because...(?)
-    return (this.fetch() % this.registerNames.length) * 2;
+    return (this.fetch() % registers.length) * 2;
   }
 
   push(value) {
-    const stackPointerAddress = this.getRegister("stackPointer");
+    const stackPointerAddress = this.getRegister("stack_pointer");
     this.memory.setUint16(stackPointerAddress, value);
     // "-2" because the stack goes backwards 2 bytes/16bits
-    this.setRegister("stackPointer", stackPointerAddress - 2);
+    this.setRegister("stack_pointer", stackPointerAddress - 2);
     this.stackFrameSize += 2;
   }
 
@@ -111,29 +97,29 @@ class CPU {
     this.push(this.getRegister("r6"));
     this.push(this.getRegister("r7"));
     this.push(this.getRegister("r8"));
-    this.push(this.getRegister("instructionPointer")); // Think of this as the "return address" of this subroutine
+    this.push(this.getRegister("instruction_pointer")); // Think of this as the "return address" of this subroutine
     this.push(this.stackFrameSize + 2); // Takes 2 bytes
 
     // Move Frame pointer to where the stack currently points,
     // so that we can safely move the stackPointer without losing reference to where it was
-    this.setRegister("framePointer", this.getRegister("stackPointer"));
+    this.setRegister("frame_pointer", this.getRegister("stack_pointer"));
     // Set to 0 so that new stack frame can be accurately tracked.
     this.stackFrameSize = 0;
   }
   pop() {
     // "+2" because that's the last item that was pushed to the stack.
-    const nextStackPointerAddress = this.getRegister("stackPointer") + 2;
-    this.setRegister("stackPointer", nextStackPointerAddress);
+    const nextStackPointerAddress = this.getRegister("stack_pointer") + 2;
+    this.setRegister("stack_pointer", nextStackPointerAddress);
     this.stackFrameSize -= 2;
     return this.memory.getUint16(nextStackPointerAddress);
   }
 
   popState() {
-    const framePointerAddress = this.getRegister("framePointer");
+    const framePointerAddress = this.getRegister("frame_pointer");
 
     // Any values in subroutine can be ignored now
     // "Variables have gone out of scope"
-    this.setRegister("stackPointer", framePointerAddress);
+    this.setRegister("stack_pointer", framePointerAddress);
 
     // This gives the size of the old stack frame,
     //because it was the last thing pushed to the frame via "pushState"
@@ -143,7 +129,7 @@ class CPU {
     const stackFrameSize = this.stackFrameSize;
 
     // Reverse order from "pushState"
-    this.setRegister("instructionPointer", this.pop());
+    this.setRegister("instruction_pointer", this.pop());
     this.setRegister("r8", this.pop());
     this.setRegister("r7", this.pop());
     this.setRegister("r6", this.pop());
@@ -160,7 +146,7 @@ class CPU {
     }
 
     // Set to beginning of this frame
-    this.setRegister("framePointer", framePointerAddress + stackFrameSize);
+    this.setRegister("frame_pointer", framePointerAddress + stackFrameSize);
   }
 
   execute(instruction) {
@@ -438,7 +424,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value !== this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -451,7 +437,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value !== this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -463,7 +449,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value === this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -476,7 +462,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value === this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -488,7 +474,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value < this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -501,7 +487,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value < this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -513,7 +499,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value > this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -526,7 +512,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value > this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -538,7 +524,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value <= this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -551,7 +537,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value <= this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -563,7 +549,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value >= this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -576,7 +562,7 @@ class CPU {
         const address = this.fetch16();
 
         if (value >= this.getRegister("accumulator")) {
-          this.setRegister("instructionPointer", address);
+          this.setRegister("instruction_pointer", address);
         }
 
         return;
@@ -611,7 +597,7 @@ class CPU {
         const address = this.fetch16();
 
         this.pushState();
-        this.setRegister("instructionPointer", address);
+        this.setRegister("instruction_pointer", address);
         return;
       }
 
@@ -623,7 +609,7 @@ class CPU {
 
         this.pushState();
 
-        this.setRegister("instructionPointer", address);
+        this.setRegister("instruction_pointer", address);
         return;
       }
 

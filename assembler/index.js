@@ -1,29 +1,12 @@
 const parser = require("./parser");
 const instructions = require("../instructions");
 const { instructionTypes } = require("../instructions/meta");
+const registers = require("../registers");
 
-const registerMap = {
-  instruction_pointer: 0,
-  accumulator: 1,
-  r1: 2,
-  r2: 3,
-  r3: 4,
-  r4: 5,
-  r5: 6,
-  r6: 7,
-  r7: 8,
-  r8: 9,
-  stack_pointer: 10,
-  frame_pointer: 11,
-};
-
-// const exampleProgram = [
-//   "mov $4200, r1",
-//   "mov r1, &0060",
-//   "mov $1300, r1",
-//   "mov &0060, r2",
-//   "add r1, r2",
-// ].join("\n");
+const registerMap = registers.reduce((acc, registerName, index) => {
+  acc[registerName] = index;
+  return acc;
+}, {});
 
 const exampleProgram = [
   "start:",
