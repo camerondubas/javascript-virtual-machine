@@ -5,8 +5,9 @@ const registers = require("./registers");
 // Note: because this is a 16bit machine
 // There are 0xFFFF uniquely addressable bytes
 class CPU {
-  constructor(memory) {
+  constructor(memory, interruptVectorAddress = 0x1000 ) {
     this.memory = memory;
+
 
     // Since this is a 16bit VM, we need 2 Bytes per register.
     // /herefore we double the number of registers to get the required memory
@@ -16,6 +17,12 @@ class CPU {
       map[name] = i * 2;
       return map;
     }, {});
+
+    this.interruptVectorAddress = interruptVectorAddress;
+    this.isInInterruptHandler = false;
+
+    // Set all bits to "1"
+    this.setRegister("interrupt_mask", 0xffff);
 
     // "-1" because we need 2 bytes
     this.setRegister("stack_pointer", 0xffff - 1);
@@ -149,8 +156,53 @@ class CPU {
     this.setRegister("frame_pointer", framePointerAddress + stackFrameSize);
   }
 
+  handleInterrupt(value) {
+    // Least significant nibble. Gets the target bit of the interrupt.
+    // used to see if this bit is masked.
+    const interruptVectorIndex = value % 0xf;
+
+    // Left-shift value 1, index times, to get a number for comparison.
+    // if idx === 2, then result = "00000100" or "4"
+    const comparisonValue = 1 << interruptVectorIndex
+
+    // Compares index to interrupt mask.
+    // if the comparison results in a 1 (true) the target interrupt is unmasked.
+    const isUnmasked = Boolean(comparisonValue & this.getRegister('interrupt_mask'));
+
+    if (!isUnmasked) {
+      return;
+    }
+
+    // * 2 because the pointer is 2 bytes
+    const addressPointer = this.interruptVectorAddress + (interruptVectorIndex * 2);
+    const address = this.memory.getUint16(addressPointer);
+
+    if (!this.isInInterruptHandler) {
+      // indicates that 0 arguments are being passed via stack
+      this.push(0);
+      this.pushState();
+    }
+
+    this.isInInterruptHandler = true;
+    this.setRegister('stack_pointer', address);
+  }
+
   execute(instruction) {
     switch (instruction) {
+      // Return from interrupt
+      case instructions.RET_INT.opcode: {
+        this.isInInterruptHandler = false;
+        this.popState();
+        return;
+      }
+      // Software Triggered Interupt
+      case instructions.INT.opcode: {
+        // Only need 4 bits, since there are only 16 entries in the interupt vector.
+        // Can be optimised later.
+        const interruptValue = this.fetch16();
+        this.handleInterrupt(interruptValue);
+        return;
+      }
       // Move literal into register
       case instructions.MOV_LIT_REG.opcode: {
         const literal = this.fetch16();

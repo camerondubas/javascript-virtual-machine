@@ -11,5 +11,6 @@ module.exports = [
   "r8",
   "stack_pointer",
   "frame_pointer",
-  "memory_bank"
+  "memory_bank",
+  "interrupt_mask"
 ];
