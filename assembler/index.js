@@ -8,46 +8,69 @@ const registerMap = registers.reduce((acc, registerName, index) => {
   return acc;
 }, {});
 
-const exampleProgram = [
-  "start:",
-  "  mov $0A, &0050",
-  "loop: ",
-  "  mov &0050, accumulator",
-  "  dec accumulator",
-  "  mov accumulator, &0050",
-  "  inc r2",
-  "  inc r2",
-  "  inc r2",
-  "  jne $00, &[!loop]",
-  "end:",
-  "  hlt",
-].join("\n");
+const exampleProgram = `
+constant code_constant = $C0DE
+
++data8 bytes = { $01, $02, $03, $04 }
+data16 words = { $0506, $0708, $090A, $0B0C }
+
+code:
+  mov [!code_constant], &1234
+`.trim();
 
 const parsedOutput = parser.run(exampleProgram);
-const labels = {};
-let currentAddress = 0;
 
-parsedOutput.result.forEach((instructionOrLabel) => {
-  if (instructionOrLabel.type === "LABEL") {
-    labels[instructionOrLabel.value] = currentAddress;
-  } else {
-    const metadata = instructions[instructionOrLabel.value.instruction];
-    currentAddress += metadata.size;
-  }
-});
+if (parsedOutput.isError) {
+  throw new Error(parsedOutput.error);
+}
 
 // Big Endian Encoding System
 // Most significant bytes come first
 const machineCode = [];
+const symbolicNames = {};
+let currentAddress = 0;
+
+
+// Resolving symbolicNames
+parsedOutput.result.forEach((node) => {
+  switch (node.type) {
+    case "LABEL": {
+      symbolicNames[node.value] = currentAddress;
+      break
+    }
+
+    case "CONSTANT": {
+      symbolicNames[node.value.name] = parseInt(node.value.value.value, 16) & 0xffff;
+      break;
+    }
+
+    case "DATA": {
+      symbolicNames[node.value.name] = currentAddress;
+
+      const sizeOfEachValueInBytes = node.value.size === 16 ? 2 : 1;
+      const totalSizeInBytes = node.value.values.length * sizeOfEachValueInBytes;
+
+      currentAddress += totalSizeInBytes;
+      break;
+    }
+
+    default: {
+      const metadata = instructions[node.value.instruction];
+      currentAddress += metadata.size;
+    }
+  }
+});
+
+
 
 const encodeLitOrMem = (lit) => {
   const radix = 16; // since it's a hexidecimal value
   let hexVal;
   if (lit.type === "VARIABLE") {
-    if (!(lit.value in labels)) {
+    if (!(lit.value in symbolicNames)) {
       throw new Error(`label "${lit.value}" wasn't resolved.`);
     }
-    hexVal = labels[lit.value];
+    hexVal = symbolicNames[lit.value];
   } else {
     hexVal = parseInt(lit.value, radix);
   }
@@ -61,10 +84,10 @@ const encodeLit8 = (lit) => {
   const radix = 16; // since it's a hexidecimal value
   let hexVal;
   if (lit.type === "VARIABLE") {
-    if (!(lit.value in labels)) {
+    if (!(lit.value in symbolicNames)) {
       throw new Error(`label "${lit.value}" wasn't resolved.`);
     }
-    hexVal = labels[lit.value];
+    hexVal = symbolicNames[lit.value];
   } else {
     hexVal = parseInt(lit.value, radix);
   }
@@ -77,31 +100,56 @@ const encodeReg = (reg) => {
   machineCode.push(mappedRegister);
 };
 
-parsedOutput.result.forEach((instruction) => {
-  if (instruction.type !== "INSTRUCTION") {
-    return; // The "instruction" is actually a label
+const encodeData8 = node => {
+  for (let byte of node.value.values) {
+    const parsed = parseInt(byte.value, 16);
+    machineCode.push(parsed & 0xff);
+  }
+}
+
+const encodeData16 = node => {
+  for (let byte of node.value.values) {
+    const parsed = parseInt(byte.value, 16);
+    machineCode.push((parsed & 0xff00) >> 8);
+    machineCode.push(parsed & 0xff);
+  }
+}
+
+parsedOutput.result.forEach((node) => {
+  // ignore symbolicNames
+  if (node.type === "LABEL" || node.type === "CONSTANT") {
+    return; // The "node" is actually a label
   }
 
-  const metadata = instructions[instruction.value.instruction];
+  if (node.type === "DATA") {
+    if (node.value.size === 8) {
+      encodeData8(node);
+    } else {
+      encodeData16(node);
+    }
+    return;
+  }
+
+  const metadata = instructions[node.value.instruction];
   machineCode.push(metadata.opcode);
 
   if (
     [instructionTypes.litReg, instructionTypes.memReg].includes(metadata.type)
   ) {
-    encodeLitOrMem(instruction.value.args[0]);
-    encodeReg(instruction.value.args[1]);
+    encodeLitOrMem(node.value.args[0]);
+    encodeReg(node.value.args[1]);
   }
 
   if (
     [instructionTypes.regLit, instructionTypes.regMem].includes(metadata.type)
   ) {
-    encodeReg(instruction.value.args[0]);
-    encodeLitOrMem(instruction.value.args[1]);
+    encodeReg(node.value.args[0]);
+    encodeLitOrMem(node.value.args[1]);
   }
 
   if (instructionTypes.regLit8 === metadata.type) {
-    encodeReg(instruction.value.args[0]);
-    encodeLit8(instruction.value.args[1]);
+    encodeReg(node.value.args[0]);
+    encodeLit8(node.value.args[1]);
   }
 
   if (
@@ -109,28 +157,28 @@ parsedOutput.result.forEach((instruction) => {
       metadata.type
     )
   ) {
-    encodeReg(instruction.value.args[0]);
-    encodeReg(instruction.value.args[1]);
+    encodeReg(node.value.args[0]);
+    encodeReg(node.value.args[1]);
   }
 
   if (instructionTypes.litMem === metadata.type) {
-    encodeLitOrMem(instruction.value.args[0]);
-    encodeLitOrMem(instruction.value.args[1]);
+    encodeLitOrMem(node.value.args[0]);
+    encodeLitOrMem(node.value.args[1]);
   }
 
   if (instructionTypes.litOffReg === metadata.type) {
-    encodeLitOrMem(instruction.value.args[0]);
-    encodeReg(instruction.value.args[1]);
-    encodeReg(instruction.value.args[2]);
+    encodeLitOrMem(node.value.args[0]);
+    encodeReg(node.value.args[1]);
+    encodeReg(node.value.args[2]);
   }
 
   if (instructionTypes.singleReg === metadata.type) {
-    encodeReg(instruction.value.args[0]);
+    encodeReg(node.value.args[0]);
   }
 
   if (instructionTypes.singleLit === metadata.type) {
-    encodeLitOrMem(instruction.value.args[0]);
+    encodeLitOrMem(node.value.args[0]);
   }
 });
 
-console.log(machineCode.join(" "));
+console.log(machineCode.map(x => '0x' + x.toString(16).padStart(2, '0')).join(', '));
