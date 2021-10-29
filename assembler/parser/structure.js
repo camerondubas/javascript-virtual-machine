@@ -1,42 +1,35 @@
 const A = require('arcsecond');
 const {
   validIdentifier,
-  hexLiteral,
+  keyValuePair,
   commaSeparated
 } = require('./common');
 
 const t = require('./types');
 
-const dataParser = size => A.coroutine(function* () {
+const structureParser = A.coroutine(function* () {
   const isExport = Boolean(yield A.possibly(A.char('+')));
 
-  yield A.str(`data${size}`);
-
+  yield A.str('structure');
   yield A.whitespace;
   const name = yield validIdentifier;
 
   yield A.whitespace;
-  yield A.char('=');
-  yield A.whitespace;
   yield A.char('{');
   yield A.whitespace;
 
+  const members = yield commaSeparated(keyValuePair);
 
-  const values = yield commaSeparated(hexLiteral);
-
-  yield A.whitespace;
+  yield A.optionalWhitespace;
   yield A.char('}');
   yield A.optionalWhitespace;
 
-  return t.data({
-    size,
+  return t.structure({
     isExport,
     name,
-    values
+    members
   });
+
 });
 
-module.exports = {
-  data8: dataParser(8),
-  data16: dataParser(16)
-};
+module.exports = structureParser;

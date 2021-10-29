@@ -8,18 +8,6 @@ const registerMap = registers.reduce((acc, registerName, index) => {
   return acc;
 }, {});
 
-const exampleProgram = `
-constant code_constant = $C0DE
-
-+data8 bytes = { $01, $02, $03, $04 }
-data16 words = { $0506, $0708, $090A, $0B0C }
-
-code:
-  mov [!code_constant], &1234
-`.trim();
-
-const parsedOutput = parser.run(exampleProgram);
-
 if (parsedOutput.isError) {
   throw new Error(parsedOutput.error);
 }
@@ -28,6 +16,7 @@ if (parsedOutput.isError) {
 // Most significant bytes come first
 const machineCode = [];
 const symbolicNames = {};
+const structures = {};
 let currentAddress = 0;
 
 
@@ -35,22 +24,54 @@ let currentAddress = 0;
 parsedOutput.result.forEach((node) => {
   switch (node.type) {
     case "LABEL": {
+      if (node.value in symbolicNames || node.value in structures) {
+        throw new Error(`Can't create label "${node.value}" because a binding with this name already exists`);
+      }
       symbolicNames[node.value] = currentAddress;
       break
     }
 
     case "CONSTANT": {
+      if (node.value.name in symbolicNames || node.value.name in structures) {
+        throw new Error(`Can't create constant "${node.value.name}" because a binding with this name already exists`);
+      }
       symbolicNames[node.value.name] = parseInt(node.value.value.value, 16) & 0xffff;
       break;
     }
 
     case "DATA": {
+      if (node.value.name in symbolicNames || node.value.name in structures) {
+        throw new Error(`Can't create data "${node.value.name}" because a binding with this name already exists`);
+      }
       symbolicNames[node.value.name] = currentAddress;
 
       const sizeOfEachValueInBytes = node.value.size === 16 ? 2 : 1;
       const totalSizeInBytes = node.value.values.length * sizeOfEachValueInBytes;
 
       currentAddress += totalSizeInBytes;
+      break;
+    }
+
+    case "STRUCTURE": {
+      if (node.value.name in symbolicNames || node.value.name in structures) {
+        throw new Error(`Can't create structure "${node.value.name}" because a binding with this name already exists`);
+      }
+      structures[node.value.name] = {
+        members: {}
+      };
+
+      let offset = 0;
+
+      for (let member of node.value.members) {
+        const size = parseInt(member.value.value) & 0xffff;
+
+        structures[node.value.name].members[member.key] = {
+          offset,
+          size
+        };
+
+        offset += size
+      }
       break;
     }
 
@@ -61,37 +82,54 @@ parsedOutput.result.forEach((node) => {
   }
 });
 
-
-
-const encodeLitOrMem = (lit) => {
+const getNodeValue = node => {
   const radix = 16; // since it's a hexidecimal value
-  let hexVal;
-  if (lit.type === "VARIABLE") {
-    if (!(lit.value in symbolicNames)) {
-      throw new Error(`label "${lit.value}" wasn't resolved.`);
-    }
-    hexVal = symbolicNames[lit.value];
-  } else {
-    hexVal = parseInt(lit.value, radix);
-  }
 
+  switch (node.type) {
+    case "INTERPRET_AS": {
+      const structure = structures[node.value.structure];
+      if (!structure) {
+        throw new Error(`structure "${node.value.structure}" wasn't resolved.`)
+      }
+
+      const member = structure.members[node.value.property];
+      if (!member) {
+        throw new Error(`property "${node.value.property}" in structure "${node.value.structure}" wasn't resolved.`)
+      }
+
+      if (!(node.value.symbol in symbolicNames)) {
+        throw new Error(`symbol "${node.value.symbol}" wasn't resolved.`)
+      }
+
+      const symbol = symbolicNames[node.value.symbol];
+
+      return symbol + member.offset;
+    }
+    case "VARIABLE": {
+      if (!(node.value in symbolicNames)) {
+        throw new Error(`label "${node.value}" wasn't resolved.`);
+      }
+      return symbolicNames[node.value];
+    }
+    case "HEX_LITERAL": {
+      return parseInt(node.value, radix);
+    }
+    default: {
+      throw new Error(`Unsupported node type: ${node.type}`)
+    }
+  }
+};
+
+const encodeLitOrMem = (node) => {
+  const hexVal = getNodeValue(node);
   const highByte = (hexVal & 0xff00) >> 8;
   const lowByte = hexVal & 0x00ff;
   machineCode.push(highByte, lowByte);
 };
 
-const encodeLit8 = (lit) => {
-  const radix = 16; // since it's a hexidecimal value
-  let hexVal;
-  if (lit.type === "VARIABLE") {
-    if (!(lit.value in symbolicNames)) {
-      throw new Error(`label "${lit.value}" wasn't resolved.`);
-    }
-    hexVal = symbolicNames[lit.value];
-  } else {
-    hexVal = parseInt(lit.value, radix);
-  }
-  const lowByte = hexVal & 0x00ff;
+const encodeLit8 = (node) => {
+  const hexVal = getNodeValue(node);
+  const lowByte = hexVal & 0xff;
   machineCode.push(lowByte);
 };
 
@@ -117,7 +155,7 @@ const encodeData16 = node => {
 
 parsedOutput.result.forEach((node) => {
   // ignore symbolicNames
-  if (node.type === "LABEL" || node.type === "CONSTANT") {
+  if (node.type === "LABEL" || node.type === "CONSTANT" || node.type === "STRUCTURE") {
     return; // The "node" is actually a label
   }
 

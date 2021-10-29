@@ -62,6 +62,27 @@ const operator = A.choice([
 // Lets us look at the next char without consuming it.
 const peek = A.lookAhead(A.regex(/^./));
 
+const optionalWhitespaceSurrounded = A.between(A.optionalWhitespace)(A.optionalWhitespace);
+
+// Comma Separated list
+const commaSeparated = A.sepBy(optionalWhitespaceSurrounded(A.char(',')));
+
+const keyValuePair = A.coroutine(function *() {
+  yield A.optionalWhitespace;
+
+  const key = yield validIdentifier;
+
+  yield A.optionalWhitespace;
+  yield A.char(':');
+  yield A.optionalWhitespace;
+
+  const value = yield hexLiteral;
+
+  yield A.optionalWhitespace;
+
+  return { key,value };
+});
+
 module.exports = {
   upperOrLowerString,
   register,
@@ -72,4 +93,7 @@ module.exports = {
   operator,
   peek,
   label,
+  commaSeparated,
+  optionalWhitespaceSurrounded,
+  keyValuePair
 };

@@ -1,7 +1,14 @@
 const A = require("arcsecond");
 const TYPES = require("./types");
+const interpretAs = require("./interpret-as.js");
 
 const { peek, hexLiteral, operator, variable } = require("./common");
+
+const expressionElement = A.choice([
+  interpretAs,
+  hexLiteral,
+  variable
+]);
 
 const disambiguateOrderOfOperations = (expression) => {
   if (
@@ -113,7 +120,7 @@ const bracketedExpression = A.coroutine(function* () {
       if (nextChar === "(") {
         state = states.OPEN_BRACKET;
       } else {
-        last(stack).push(yield A.choice([hexLiteral, variable]));
+        last(stack).push(yield expressionElement);
         yield A.optionalWhitespace;
         state = states.OPERATOR_OR_CLOSING_BRACKET;
       }
@@ -151,8 +158,7 @@ const squareBracketExpression = A.coroutine(function* () {
     if (state === states.EXPECT_ELEMENT) {
       const result = yield A.choice([
         bracketedExpression,
-        hexLiteral,
-        variable,
+        expressionElement
       ]);
       expression.push(result);
       state = states.EXPECT_OPERATOR;
