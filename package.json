@@ -4,11 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "assemble": "node assembler/index.js"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "arcsecond": "^2.0.4"
+    "arcsecond": "^2.0.4",
+    "commander": "^8.3.0"
   }
 }

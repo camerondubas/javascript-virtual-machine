@@ -2,6 +2,31 @@ const parser = require("./parser");
 const instructions = require("../instructions");
 const { instructionTypes } = require("../instructions/meta");
 const registers = require("../registers");
+const fs = require('fs');
+const path = require('path');
+const { program } = require('commander');
+
+// Setup
+program
+  .argument("[program]", "something")
+  .option('-e, --example <program>', 'assemble the provided example programs');
+program.parse(process.argv);
+
+const options = program.opts();
+const [programPath] = program.args;
+
+//Load Program
+let file;
+if (programPath) {
+  file = fs.readFileSync(path.join(process.cwd(), programPath), {encoding: 'utf-8'});
+} else if (options.example) {
+  file = fs.readFileSync(`${__dirname}/../examples/${options.example}.asm`, {encoding: 'utf-8'});
+} else {
+  return
+}
+
+// Assemble Program
+const parsedOutput = parser.run(file);
 
 const registerMap = registers.reduce((acc, registerName, index) => {
   acc[registerName] = index;
@@ -219,4 +244,5 @@ parsedOutput.result.forEach((node) => {
   }
 });
 
+// Output Machine Code
 console.log(machineCode.map(x => '0x' + x.toString(16).padStart(2, '0')).join(', '));
